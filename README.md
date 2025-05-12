@@ -2,6 +2,15 @@
   <img src="assets/logo2.png?raw=true" width="99.1%" />
 </p>
 
+### Full ONNX export for mobile sam (preprocessing + encoder + decoder)
+
+```sh
+# requires uv installed. curl -LsSf https://astral.sh/uv/install.sh | sh
+bash onnx_export.sh
+```
+
+Example running full onnx inference on image without pytorch can be found in `notebooks/onnx_inference.ipynb`.
+
 # Faster Segment Anything (MobileSAM) and Everything (MobileSAMv2)
 :pushpin: MobileSAMv2, available at [ResearchGate](https://www.researchgate.net/publication/376579294_MobileSAMv2_Faster_Segment_Anything_to_Everything) and [arXiv](https://arxiv.org/abs/2312.09579.pdf), replaces the grid-search prompt sampling in SAM with object-aware prompt sampling for faster **segment everything(SegEvery)**.
 

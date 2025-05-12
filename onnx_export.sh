@@ -1,3 +1,4 @@
+uv sync
 uv run scripts/export_onnx_model.py --checkpoint weights/mobile_sam.pt --output weights/mobile_sam_decoder.onnx --model-type vit_t || exit 1
 uv run scripts/export_onnx_vit.py --checkpoint weights/mobile_sam.pt --output weights/mobile_sam_encoder_tinyvit.onnx --model-type vit_t || exit 1
 uv run scripts/export_onnx_vit_preprocessor.py --output weights/mobile_sam_encoder_tinyvit_preprocessor.onnx --width 1920 --height 1080 || exit 1
