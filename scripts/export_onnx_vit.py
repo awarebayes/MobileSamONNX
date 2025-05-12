@@ -5,9 +5,12 @@
 # LICENSE file in the root directory of this source tree.
 
 import torch
+import torch.nn as nn
 
 import sys
+
 sys.path.append(".")
+from mobile_sam.modeling.tiny_vit_sam import TinyViT
 from mobile_sam import sam_model_registry
 from mobile_sam.utils.onnx import SamOnnxModel
 
@@ -41,16 +44,6 @@ parser.add_argument(
 )
 
 parser.add_argument(
-    "--return-single-mask",
-    action="store_true",
-    help=(
-        "If true, the exported ONNX model will only return the best mask, "
-        "instead of returning multiple masks. For high resolution images "
-        "this can improve runtime when upscaling masks is expensive."
-    ),
-)
-
-parser.add_argument(
     "--opset",
     type=int,
     default=16,
@@ -75,49 +68,32 @@ def run_export(
 ):
     print("Loading model...")
     sam = sam_model_registry[model_type](checkpoint=checkpoint)
-    import warnings
+    onnx_model = sam.image_encoder
+    image = torch.randn((1, 3, 1024, 1024))
+    _ = onnx_model.forward(image)
 
-    onnx_model = SamOnnxModel(sam, return_single_mask=True)
-
-    dynamic_axes = {
-        "point_coords": {1: "num_points"},
-        "point_labels": {1: "num_points"},
-    }
-
-    embed_dim = sam.prompt_encoder.embed_dim
-    embed_size = sam.prompt_encoder.image_embedding_size
-    mask_input_size = [4 * x for x in embed_size]
-    dummy_inputs = {
-        "image_embeddings": torch.randn(1, embed_dim, *embed_size, dtype=torch.float),
-        "point_coords": torch.randint(low=0, high=1024, size=(1, 5, 2), dtype=torch.float),
-        "point_labels": torch.randint(low=0, high=4, size=(1, 5), dtype=torch.float),
-        "mask_input": torch.randn(1, 1, *mask_input_size, dtype=torch.float),
-        "has_mask_input": torch.tensor([1], dtype=torch.float),
-        "orig_im_size": torch.tensor([1500, 2250], dtype=torch.float),
-    }
-    output_names = ["masks", "iou_predictions", "low_res_masks"]
+    output_names = ["embeddings"]
 
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=torch.jit.TracerWarning)
         warnings.filterwarnings("ignore", category=UserWarning)
         with open(output, "wb") as f:
+            print(f"Exporting onnx model to {output}...")
             torch.onnx.export(
                 onnx_model,
-                tuple(dummy_inputs.values()),
+                tuple([image,]),
                 f,
                 export_params=True,
                 verbose=False,
                 opset_version=opset,
                 do_constant_folding=True,
-                input_names=list(dummy_inputs.keys()),
+                input_names=["preprocessed_image"],
                 output_names=output_names,
-                dynamic_axes=dynamic_axes,
-            )    
-
+                dynamic_axes=None,
+            )
 
     if onnxruntime_exists:
-        ort_inputs = {k: to_numpy(v) for k, v in dummy_inputs.items()}
-        # set cpu provider default
+        ort_inputs = {"preprocessed_image": to_numpy(image)}
         providers = ["CPUExecutionProvider"]
         ort_session = onnxruntime.InferenceSession(output, providers=providers)
         _ = ort_session.run(None, ort_inputs)
@@ -126,7 +102,6 @@ def run_export(
 
 def to_numpy(tensor):
     return tensor.cpu().numpy()
-
 
 if __name__ == "__main__":
     args = parser.parse_args()
@@ -137,18 +112,4 @@ if __name__ == "__main__":
         opset=args.opset,
     )
 
-    if args.quantize_out is not None:
-        assert onnxruntime_exists, "onnxruntime is required to quantize the model."
-        from onnxruntime.quantization import QuantType  # type: ignore
-        from onnxruntime.quantization.quantize import quantize_dynamic  # type: ignore
 
-        print(f"Quantizing model and writing to {args.quantize_out}...")
-        quantize_dynamic(
-            model_input=args.output,
-            model_output=args.quantize_out,
-            optimize_model=True,
-            per_channel=False,
-            reduce_range=False,
-            weight_type=QuantType.QUInt8,
-        )
-        print("Done!")
