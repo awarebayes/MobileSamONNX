@@ -70,17 +70,24 @@ parser.add_argument(
     ),
 )
 
+NUM_INSTANCES = 128
+
 class Segmentor(nn.Module):
     def __init__(self, model: SamOnnxModel):
         super().__init__()
         self.model = model
 
     def forward(self, *args, **kwargs):
-        masks, _, _ = self.model.forward(*args, **kwargs)
-        return (masks > 0.0).to(torch.uint8)
-
-
-
+        print("Embeddings size", args[0].shape)
+        exit(1)
+        masks, _, _ = self.model.forward(
+            image_embeddings=args[0],
+            point_coords=args[1],
+            point_labels=args[2],
+            orig_im_size=args[3],
+        )
+        masked = (masks > 0.0).to(torch.uint8)
+        return masked
 
 def run_export(
     model_type: str,
@@ -94,10 +101,10 @@ def run_export(
 
     onnx_model = Segmentor(SamOnnxModel(sam, return_single_mask=True))
 
-    dynamic_axes = {
-        "point_coords": {1: "num_points"},
-        "point_labels": {1: "num_points"},
-    }
+    # dynamic_axes = {
+    #     "point_coords": {1: "num_points"},
+    #     "point_labels": {1: "num_points"},
+    # }
 
     embed_dim = sam.prompt_encoder.embed_dim
     embed_size = sam.prompt_encoder.image_embedding_size
@@ -106,8 +113,8 @@ def run_export(
         "image_embeddings": torch.randn(1, embed_dim, *embed_size, dtype=torch.float),
         "point_coords": torch.randint(low=0, high=1024, size=(1, 5, 2), dtype=torch.float),
         "point_labels": torch.randint(low=0, high=4, size=(1, 5), dtype=torch.float),
-        "mask_input": torch.randn(1, 1, *mask_input_size, dtype=torch.float),
-        "has_mask_input": torch.tensor([1], dtype=torch.float),
+        # "mask_input": torch.randn(1, 1, *mask_input_size, dtype=torch.float),
+        # "has_mask_input": torch.tensor([1], dtype=torch.float),
         "orig_im_size": torch.tensor([1500, 2250], dtype=torch.float),
     }
     output_names = ["masks"]
@@ -126,7 +133,7 @@ def run_export(
                 do_constant_folding=True,
                 input_names=list(dummy_inputs.keys()),
                 output_names=output_names,
-                dynamic_axes=dynamic_axes,
+                # dynamic_axes=dynamic_axes,
             )
         model = onnx.load(output)
         model_simp, check = simplify(model)
