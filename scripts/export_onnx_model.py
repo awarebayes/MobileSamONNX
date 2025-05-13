@@ -13,6 +13,7 @@ from mobile_sam.utils.onnx import SamOnnxModel
 
 import argparse
 import warnings
+import torch.nn.functional as F
 
 from onnxsim import simplify
 import onnx
@@ -78,16 +79,26 @@ class Segmentor(nn.Module):
         self.model = model
 
     def forward(self, *args, **kwargs):
-        print("Embeddings size", args[0].shape)
-        exit(1)
+        image_embeddings_expanded = args[0] 
+        points = args[1]
+        points[0] = torch.tensor([0, 0])
+
+        valid_points = points.abs().sum(dim=1) > 0 
+        zeros = torch.zeros_like(points)
+        points_padded = F.pad(torch.stack([points, zeros], dim=1), (0, 0, 0, 3))
+        labels = F.pad(torch.tensor([ 1., -1.]).expand(NUM_INSTANCES, -1), (0, 3))
+        original_image_size = args[2]
+
         masks, _, _ = self.model.forward(
-            image_embeddings=args[0],
-            point_coords=args[1],
-            point_labels=args[2],
-            orig_im_size=args[3],
+            image_embeddings=image_embeddings_expanded,
+            point_coords=points_padded,
+            point_labels=labels,
+            orig_im_size=original_image_size,
         )
-        masked = (masks > 0.0).to(torch.uint8)
-        return masked
+        masked = (masks > 0.0).squeeze(1)
+        masked = masked * valid_points.view(-1, 1, 1).float()
+        masked = torch.argmax(masked.float(), dim=0).byte() 
+        return masks
 
 def run_export(
     model_type: str,
@@ -101,20 +112,11 @@ def run_export(
 
     onnx_model = Segmentor(SamOnnxModel(sam, return_single_mask=True))
 
-    # dynamic_axes = {
-    #     "point_coords": {1: "num_points"},
-    #     "point_labels": {1: "num_points"},
-    # }
-
     embed_dim = sam.prompt_encoder.embed_dim
     embed_size = sam.prompt_encoder.image_embedding_size
-    mask_input_size = [4 * x for x in embed_size]
     dummy_inputs = {
         "image_embeddings": torch.randn(1, embed_dim, *embed_size, dtype=torch.float),
-        "point_coords": torch.randint(low=0, high=1024, size=(1, 5, 2), dtype=torch.float),
-        "point_labels": torch.randint(low=0, high=4, size=(1, 5), dtype=torch.float),
-        # "mask_input": torch.randn(1, 1, *mask_input_size, dtype=torch.float),
-        # "has_mask_input": torch.tensor([1], dtype=torch.float),
+        "point_coords": torch.randint(low=0, high=1024, size=(NUM_INSTANCES, 2), dtype=torch.float),
         "orig_im_size": torch.tensor([1500, 2250], dtype=torch.float),
     }
     output_names = ["masks"]
@@ -133,13 +135,14 @@ def run_export(
                 do_constant_folding=True,
                 input_names=list(dummy_inputs.keys()),
                 output_names=output_names,
+                training=torch.onnx.TrainingMode.EVAL
                 # dynamic_axes=dynamic_axes,
             )
-        model = onnx.load(output)
-        model_simp, check = simplify(model)
-        assert check, "Simplified ONNX model could not be validated"
-        with open(output, "wb") as f:
-            onnx.save_model(model_simp, output)
+        # model = onnx.load(output)
+        # model_simp, check = simplify(model)
+        # assert check, "Simplified ONNX model could not be validated"
+        # with open(output, "wb") as f:
+        #     onnx.save_model(model_simp, output)
 
 
     if onnxruntime_exists:
