@@ -89,9 +89,6 @@ class PreprocessModule(nn.Module):
         # BGR to RGB (swap channels 0 and 2)
         x = x[:, [2, 1, 0], :, :]
 
-        # Normalize
-        x = (x - self.pixel_mean) / self.pixel_std
-
         # Resize
         h, w = x.shape[-2], x.shape[-1]
         scale = self.target_size / max(h, w)
@@ -104,6 +101,9 @@ class PreprocessModule(nn.Module):
             mode='bilinear',
             align_corners=False
         )
+
+        # Normalize
+        x = (x - self.pixel_mean) / self.pixel_std
 
         # Pad to square (assuming x is CHW format)
         padh = self.target_size - new_h 
