@@ -14,6 +14,8 @@ from mobile_sam.modeling.tiny_vit_sam import TinyViT
 
 import argparse
 import warnings
+from onnxsim import simplify
+import onnx
 
 try:
     import onnxruntime  # type: ignore
@@ -32,7 +34,7 @@ parser.add_argument(
 parser.add_argument(
     "--opset",
     type=int,
-    default=16,
+    default=17,
     help="The ONNX opset version to use. Must be >=11",
 )
 
@@ -76,11 +78,16 @@ class PreprocessModule(nn.Module):
         self.target_size = target_size
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # Input (H, W, C) in [0, 255] (uint8)
+        # Input (H, W, C) in [0, 255] BGR (uint8)
+
+        # CHW
         x = x.permute(2, 0, 1).contiguous()[None, :, :, :]
 
         # Convert to float32
         x = x.float() 
+
+        # BGR to RGB (swap channels 0 and 2)
+        x = x[:, [2, 1, 0], :, :]
 
         # Normalize
         x = (x - self.pixel_mean) / self.pixel_std
@@ -133,6 +140,11 @@ def run_export(
                 output_names=output_names,
                 dynamic_axes=None,
             )
+        model = onnx.load(output)
+        model_simp, check = simplify(model)
+        assert check, "Simplified ONNX model could not be validated"
+        with open(output, "wb") as f:
+            onnx.save_model(model_simp, output)
 
     if onnxruntime_exists:
         ort_inputs = {"image": to_numpy(image)}

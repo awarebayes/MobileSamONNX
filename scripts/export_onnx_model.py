@@ -14,6 +14,9 @@ from mobile_sam.utils.onnx import SamOnnxModel
 import argparse
 import warnings
 
+from onnxsim import simplify
+import onnx
+
 try:
     import onnxruntime  # type: ignore
 
@@ -53,7 +56,7 @@ parser.add_argument(
 parser.add_argument(
     "--opset",
     type=int,
-    default=16,
+    default=17,
     help="The ONNX opset version to use. Must be >=11",
 )
 
@@ -112,7 +115,12 @@ def run_export(
                 input_names=list(dummy_inputs.keys()),
                 output_names=output_names,
                 dynamic_axes=dynamic_axes,
-            )    
+            )
+        model = onnx.load(output)
+        model_simp, check = simplify(model)
+        assert check, "Simplified ONNX model could not be validated"
+        with open(output, "wb") as f:
+            onnx.save_model(model_simp, output)
 
 
     if onnxruntime_exists:
