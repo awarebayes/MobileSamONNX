@@ -98,7 +98,7 @@ class Segmentor(nn.Module):
         masked = (masks > 0.0).squeeze(1)
         masked = masked * valid_points.view(-1, 1, 1).float()
         masked = torch.argmax(masked.float(), dim=0).byte() 
-        return masks
+        return masked
 
 def run_export(
     model_type: str,
