@@ -117,7 +117,7 @@ def run_export(
     dummy_inputs = {
         "image_embeddings": torch.randn(1, embed_dim, *embed_size, dtype=torch.float),
         "point_coords": torch.randint(low=0, high=1024, size=(NUM_INSTANCES, 2), dtype=torch.float),
-        "orig_im_size": torch.tensor([1500, 2250], dtype=torch.float),
+        "orig_im_size": torch.tensor([1500, 2250], dtype=torch.int32),
     }
     output_names = ["masks"]
 
