@@ -5,7 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import torch
-
+import torch.nn as nn
 import sys
 sys.path.append(".")
 from mobile_sam import sam_model_registry
@@ -70,6 +70,18 @@ parser.add_argument(
     ),
 )
 
+class Segmentor(nn.Module):
+    def __init__(self, model: SamOnnxModel):
+        super().__init__()
+        self.model = model
+
+    def forward(self, *args, **kwargs):
+        masks, _, _ = self.model.forward(*args, **kwargs)
+        return (masks > 0.0).to(torch.uint8)
+
+
+
+
 def run_export(
     model_type: str,
     checkpoint: str,
@@ -80,7 +92,7 @@ def run_export(
     sam = sam_model_registry[model_type](checkpoint=checkpoint)
     import warnings
 
-    onnx_model = SamOnnxModel(sam, return_single_mask=True)
+    onnx_model = Segmentor(SamOnnxModel(sam, return_single_mask=True))
 
     dynamic_axes = {
         "point_coords": {1: "num_points"},
@@ -98,7 +110,7 @@ def run_export(
         "has_mask_input": torch.tensor([1], dtype=torch.float),
         "orig_im_size": torch.tensor([1500, 2250], dtype=torch.float),
     }
-    output_names = ["masks", "iou_predictions", "low_res_masks"]
+    output_names = ["masks"]
 
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=torch.jit.TracerWarning)
